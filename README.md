@@ -22,3 +22,4 @@ Spiečiaus veikimo simuliaciniai modeliai. Pagrindinią užduotį atlieka triang
 5️⃣ Naudoti Kalmano filtrą rezultatų tikslinimui.
 6️⃣ Gauti duomenis iš kitų sistemų (Wi-Fi, LTE/5G bokštų, IoT ir kitų įrenginių) siekiant pagerinti lokalizacijos tikslumą.
 7️⃣ Grąžinti apskaičiuotas objekto koordinates realiuoju laiku.
+ 

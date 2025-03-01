@@ -32,6 +32,7 @@ analyze_jamming:
     push rbp
     mov rbp, rsp
     mov rdi, swarm_status
+    call global tirangulation ; 
     call printf
 
     mov rsi, drone_jamming_signals

@@ -1,103 +1,103 @@
 section .data
-    triangulation_data db "triangulation_data", 0 ; Simuliuojamas trianguliacijos modulio failas
-    aes_key db "1234567890ABCDEF1234567890ABCDEF"  ; 32 baitų AES-256 raktas
-    comm_buffer resb 256  ; Buferis išsiunčiamiems/gautiems duomenims
-    ground_control_ip db "192.168.1.100", 0  ; GCS IP adresas
-    lora_device db "/dev/ttyS0", 0  ; LoRa įrenginio nuoroda
-    bt_device db "hci0", 0  ; Bluetooth interfeisas
+    triangulation_data db "triangulation_data", 0  ; Simulated triangulation module data
+    aes_key db "1234567890ABCDEF1234567890ABCDEF"  ; 32-byte AES-256 encryption key
+    comm_buffer resb 256  ; Buffer for sending/receiving encrypted data
+    ground_control_ip db "192.168.1.100", 0  ; Ground Control Station IP address
+    lora_device db "/dev/ttyS0", 0  ; LoRa module serial port
+    bt_device db "hci0", 0  ; Bluetooth interface name
 
 section .bss
-    drone_position resb 64  ; Drąno pozicija
-    source_position resb 64  ; Signalo šaltinio pozicija
-    encrypted_data resb 256  ; Užšifruoti duomenys
+    drone_position resb 64  ; Stores drone's position
+    source_position resb 64  ; Stores triangulated source position
+    encrypted_data resb 256  ; Buffer for encrypted data
 
 section .text
     global _start
-    extern triangulation_get_data  ; Funkcija iš triangulation.asm
-    extern aes_encrypt, aes_decrypt  ; AES šifravimo funkcijos
-    extern send_tcp_packet, recv_tcp_packet  ; TCP funkcijos
-    extern send_udp_packet, recv_udp_packet  ; UDP funkcijos
-    extern send_lora_packet, recv_lora_packet  ; LoRa funkcijos
-    extern send_bt_packet, recv_bt_packet  ; Bluetooth funkcijos
+    extern triangulation_get_data  ; Function to get data from triangulation.asm
+    extern aes_encrypt, aes_decrypt  ; AES encryption and decryption functions
+    extern send_tcp_packet, recv_tcp_packet  ; TCP communication functions
+    extern send_udp_packet, recv_udp_packet  ; UDP communication functions
+    extern send_lora_packet, recv_lora_packet  ; LoRa communication functions
+    extern send_bt_packet, recv_bt_packet  ; Bluetooth communication functions
 
 _start:
     ; ==========================
-    ; 1. GAUTI TRIANGULIACIJOS DUOMENIS
+    ; 1. RETRIEVE TRIANGULATION DATA
     ; ==========================
-    mov rdi, triangulation_data
-    lea rsi, source_position
-    lea rdx, drone_position
-    call triangulation_get_data  ; Gauti buvimo vietos duomenis
+    mov rdi, triangulation_data  ; Load triangulation module reference
+    lea rsi, source_position  ; Destination for source location data
+    lea rdx, drone_position  ; Destination for drone location data
+    call triangulation_get_data  ; Fetch position data from triangulation module
 
     ; ==========================
-    ; 2. ŠIFRUOTI DUOMENIS PRIEŠ SIUNTIMĄ
+    ; 2. ENCRYPT DATA BEFORE TRANSMISSION
     ; ==========================
-    lea rdi, drone_position  ; Šifruojamas pranešimas
-    lea rsi, encrypted_data  ; Saugojimo vieta
-    lea rdx, aes_key         ; AES-256 raktas
-    call aes_encrypt         ; Šifruoti duomenis
+    lea rdi, drone_position  ; Load data to be encrypted
+    lea rsi, encrypted_data  ; Buffer to store encrypted output
+    lea rdx, aes_key         ; AES-256 encryption key
+    call aes_encrypt         ; Encrypt the data
 
     ; ==========================
-    ; 3. IŠSIŲSTI DUOMENIS GROUND CONTROL STATION (TCP)
+    ; 3. SEND DATA TO GROUND CONTROL STATION (TCP)
     ; ==========================
-    lea rdi, ground_control_ip  ; GCS IP adresas
-    lea rsi, encrypted_data     ; Siunčiami duomenys
-    mov rdx, 256                ; Duomenų dydis
-    call send_tcp_packet        ; Siųsti užšifruotą paketą per TCP
+    lea rdi, ground_control_ip  ; Load GCS IP address
+    lea rsi, encrypted_data     ; Load encrypted data
+    mov rdx, 256                ; Data size
+    call send_tcp_packet        ; Send encrypted data via TCP
 
     ; ==========================
-    ; 4. SIŲSTI DUOMENIS KITIEMS DRONAMS PER LORA
+    ; 4. SEND DATA TO OTHER DRONES VIA LORA
     ; ==========================
-    lea rdi, lora_device  ; LoRa įrenginys
-    lea rsi, encrypted_data  ; Užšifruoti duomenys
-    mov rdx, 256  ; Dydis
-    call send_lora_packet  ; Siųsti per LoRa
+    lea rdi, lora_device  ; Load LoRa module device
+    lea rsi, encrypted_data  ; Load encrypted data
+    mov rdx, 256  ; Data size
+    call send_lora_packet  ; Transmit data via LoRa
 
     ; ==========================
-    ; 5. SIŲSTI DUOMENIS ARTIMIEMS DRONAMS PER BLUETOOTH
+    ; 5. SEND DATA TO NEARBY DRONES VIA BLUETOOTH
     ; ==========================
-    lea rdi, bt_device  ; Bluetooth interfeisas
-    lea rsi, encrypted_data  ; Užšifruoti duomenys
-    mov rdx, 256  ; Dydis
-    call send_bt_packet  ; Siųsti per Bluetooth
+    lea rdi, bt_device  ; Load Bluetooth interface
+    lea rsi, encrypted_data  ; Load encrypted data
+    mov rdx, 256  ; Data size
+    call send_bt_packet  ; Transmit data via Bluetooth
 
     ; ==========================
-    ; 6. GAUTI DUOMENIS IŠ KITŲ DRONŲ PER LORA
+    ; 6. RECEIVE DATA FROM OTHER DRONES VIA LORA
     ; ==========================
-    lea rdi, comm_buffer  ; Buferis priimamam pranešimui
-    mov rsi, 256  ; Maksimalus dydis
-    call recv_lora_packet  ; Gauti paketą per LoRa
+    lea rdi, comm_buffer  ; Load buffer for incoming data
+    mov rsi, 256  ; Maximum data size
+    call recv_lora_packet  ; Receive data from LoRa network
 
     ; ==========================
-    ; 7. GAUTI DUOMENIS IŠ ARTIMŲ DRONŲ PER BLUETOOTH
+    ; 7. RECEIVE DATA FROM NEARBY DRONES VIA BLUETOOTH
     ; ==========================
-    lea rdi, comm_buffer  ; Buferis priimamam pranešimui
-    mov rsi, 256  ; Maksimalus dydis
-    call recv_bt_packet  ; Gauti paketą per Bluetooth
+    lea rdi, comm_buffer  ; Load buffer for incoming data
+    mov rsi, 256  ; Maximum data size
+    call recv_bt_packet  ; Receive data via Bluetooth
 
     ; ==========================
-    ; 8. GAUTI DUOMENIS IŠ GROUND CONTROL STATION (UDP)
+    ; 8. RECEIVE DATA FROM GROUND CONTROL STATION (UDP)
     ; ==========================
-    lea rdi, comm_buffer  ; Buferis priimamam pranešimui
-    mov rsi, 256  ; Maksimalus dydis
-    call recv_udp_packet  ; Gauti paketą per UDP
+    lea rdi, comm_buffer  ; Load buffer for incoming data
+    mov rsi, 256  ; Maximum data size
+    call recv_udp_packet  ; Receive data from GCS via UDP
 
     ; ==========================
-    ; 9. IŠŠIFRUOTI GAUTUS DUOMENIS
+    ; 9. DECRYPT RECEIVED DATA
     ; ==========================
-    lea rdi, comm_buffer  ; Gautas užšifruotas pranešimas
-    lea rsi, drone_position  ; Iššifruoti į šią vietą
-    lea rdx, aes_key         ; AES-256 raktas
-    call aes_decrypt         ; Iššifruoti duomenis
+    lea rdi, comm_buffer  ; Load received encrypted data
+    lea rsi, drone_position  ; Destination for decrypted data
+    lea rdx, aes_key         ; AES-256 decryption key
+    call aes_decrypt         ; Decrypt the received data
 
     ; ==========================
-    ; 10. ATVYKUSIUS DUOMENIS PANAUDOTI NAVIGACIJOJE
+    ; 10. PROCESS RECEIVED DATA FOR NAVIGATION
     ; ==========================
-    ; Čia galima būtų įdėti papildomą navigacijos algoritmą
+    ; Here we can add logic to update drone navigation with new position data
 
     ; ==========================
-    ; 11. UŽBAIGTI PROGRAMĄ
+    ; 11. EXIT PROGRAM
     ; ==========================
-    mov eax, 60  ; sys_exit syscall numeris
+    mov eax, 60  ; syscall: exit
     xor edi, edi
     syscall

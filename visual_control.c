@@ -13,6 +13,7 @@ TOPIC_DRONE_COMMAND = "drone/command"
 TOPIC_FLIGHT_CONTROLLER = "flight_controller/status"
 TOPIC_GROUND_CONTROL = "ground_control/command"
 TOPIC_VIDEO_FEED = "drone/video"
+TOPIC_COORDINATION = "swarm/coordination"
 
 # Drone Class
 class Drone:
@@ -24,6 +25,7 @@ class Drone:
         self.client.on_message = self.on_message
         self.client.connect(BROKER_ADDRESS)
         self.client.subscribe(TOPIC_DRONE_COMMAND)
+        self.client.subscribe(TOPIC_COORDINATION)
         self.client.loop_start()
         self.cap = cv2.VideoCapture(0)
     
@@ -32,6 +34,8 @@ class Drone:
         if command.get("target") == self.drone_id or command.get("target") == "all":
             print(f"Drone {self.drone_id} received command: {command['action']}")
             self.execute_command(command['action'])
+        elif "coordinates" in command:
+            self.coordinate_with_swarm(command)
     
     def execute_command(self, action):
         if action == "move_forward":
@@ -61,6 +65,10 @@ class Drone:
                 self.client.publish(TOPIC_VIDEO_FEED, json.dumps(video_data))
             time.sleep(0.1)
     
+    def coordinate_with_swarm(self, data):
+        self.position = data["coordinates"]
+        print(f"Drone {self.drone_id} coordinating with swarm: new position {self.position}")
+    
     def start_status_updates(self):
         def status_updates():
             while True:
@@ -81,6 +89,7 @@ class FlightController:
     def on_message(self, client, userdata, message):
         status_update = json.loads(message.payload.decode())
         print(f"Flight Controller received status: {status_update}")
+        self.coordinate_swarm()
     
     def send_command(self, action, target="all"):
         command = {
@@ -89,6 +98,14 @@ class FlightController:
         }
         self.client.publish(TOPIC_DRONE_COMMAND, json.dumps(command))
         print(f"Flight Controller sent command: {action} to {target}")
+    
+    def coordinate_swarm(self):
+        # Simulating coordinated swarm movement based on video recognition
+        coordination_data = {
+            "coordinates": [10.0, 20.0, 100.0]  # New position based on vision data
+        }
+        self.client.publish(TOPIC_COORDINATION, json.dumps(coordination_data))
+        print("Flight Controller sent swarm coordination data.")
 
 # Ground Control Class
 class GroundControl:

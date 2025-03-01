@@ -1,4 +1,8 @@
 section .data
+	; ===============================
+    ; Signal triangulation detection module. Works thru direct 
+	; Ground control data injection, or passed thru pereferials
+    ; ===============================
     gps_device db "/dev/serial0", 0   ; UART GPS module
     bt_command db "hcitool rssi AA:BB:CC:DD:EE:FF", 0   ; Bluetooth RSSI command
     sdr_command db "rtl_sdr -f 915000000 -s 2.4e6 -g 20", 0   ; SDR command (915 MHz)
@@ -10,12 +14,25 @@ section .data
     speed_of_light dd 299792458.0
     estimated_x dd 0.0
     estimated_y dd 0.0
+	
+	signal_strengths dd 50.0, 40.0, 30.0, 20.0  ; Example RSS values (dBm) from 4 receivers
+    receiver_coords dd 0.0, 0.0, 10.0, 10.0, 20.0, 5.0, 30.0, 15.0  ; (x,y) positions of 4 receivers
+    path_loss_factor dd 3.0     ; Path loss exponent (urban environment ~3)
+    reference_distance dd 1.0   ; Reference distance (1m)
+    reference_signal dd -30.0   ; Signal at reference distance
+    speed_of_signal dd 299792458.0  ; Speed of light in m/s
+    estimated_x dd 0.0
+    estimated_y dd 0.0
 
 section .bss
     gps_x resd 1  ; GPS latitude
     gps_y resd 1  ; GPS longitude
     bt_rssi resd 1  ; Bluetooth RSSI value
     sdr_tdoa resd 1  ; TDOA from SDR
+    distances resd 4      ; Estimated distances (1 per receiver)
+    time_diffs resd 4     ; Time differences
+    filtered_x resd 1     ; Kalman-filtered X
+    filtered_y resd 1     ; Kalman-filtered Y
 
 section .text
     global _start
@@ -23,8 +40,81 @@ section .text
     extern system  ; Used for calling system commands
 
 _start:
+
+; RSS Distance Calculation Using Log-Distance Path Loss Model
+rss_loop:
+    fld dword [reference_signal]  ; Load reference signal strength
+    fsub dword [esi]              ; Subtract measured signal
+    fdiv dword [path_loss_factor] ; Divide by path loss exponent
+    fld1
+    fscale                        ; Compute 10^(difference/path_loss_factor)
+    fstp dword [edi]              ; Store computed distance
+
+    add esi, 4  ; Next RSS value
+    add edi, 4  ; Next distance slot
+    loop rss_loop
+
+; Time Difference of Arrival (TDOA) Computation
+    lea esi, receiver_coords
+    lea edi, time_diffs
+    mov ecx, 4  ; Loop counter for receivers
+
+tdoa_loop:
+    fld dword [esi]  ; Load receiver X coordinate
+    fmul dword [speed_of_signal]  ; Multiply by speed of light
+    fstp dword [edi]  ; Store computed time difference
+
+    add esi, 8  ; Move to next (x,y) coordinate pair
+    add edi, 4  ; Move to next time difference
+    loop tdoa_loop
+
+; Compute Estimated Position using Least-Squares Multilateration
+    lea esi, receiver_coords
+    lea edi, distances
+    mov ecx, 4
+    xorps xmm0, xmm0   ; Sum X
+    xorps xmm1, xmm1   ; Sum Y
+    xorps xmm2, xmm2   ; Sum Distances
+
+position_loop:
+    movaps xmm3, [esi]  ; Load (x, y) coordinates
+    movaps xmm4, [edi]  ; Load distance
+
+    addps xmm0, xmm3    ; Sum X coordinates
+    addps xmm1, xmm3    ; Sum Y coordinates
+    addps xmm2, xmm4    ; Sum distances
+
+    add esi, 8  ; Move to next receiver coordinate
+    add edi, 4  ; Move to next distance
+    loop position_loop
+
+    divps xmm0, xmm2  ; Normalize X
+    divps xmm1, xmm2  ; Normalize Y
+
+    movaps [estimated_x], xmm0  ; Store estimated X
+    movaps [estimated_y], xmm1  ; Store estimated Y
+
+; Apply Kalman Filter to Estimated Position
+    fld dword [filtered_x]
+    fmul dword [filtered_x]  ; Prediction
+    fld dword [estimated_x]
+    fsubp                      ; Difference
+    fmul dword [path_loss_factor] ; Scaling Factor
+    fadd dword [filtered_x]
+    fstp dword [filtered_x]  ; Store filtered X
+
+    fld dword [filtered_y]
+    fsub dword [estimated_y]
+    fmul dword [path_loss_factor]
+    fadd dword [filtered_y]
+    fstp dword [filtered_y]  ; Store filtered Y
+
+   ; Exit
+    mov eax, 60
+    xor edi, edi
+    syscall
     ; ===============================
-    ; 1. READ GPS DATA (UART)
+    ;  READ GPS DATA (UART)
     ; ===============================
     mov rdi, gps_device
     mov rsi, gps_buffer
@@ -36,7 +126,7 @@ _start:
     call parse_gps
 
     ; ===============================
-    ; 2. FETCH BLUETOOTH RSSI
+    ;  FETCH BLUETOOTH RSSI
     ; ===============================
     mov rdi, bt_command
     mov rsi, bt_buffer
@@ -48,7 +138,7 @@ _start:
     call parse_rssi
 
     ; ===============================
-    ; 3. PROCESS SDR DATA (TDOA/AoA)
+    ;  PROCESS SDR DATA (TDOA/AoA)
     ; ===============================
     mov rdi, sdr_command
     mov rsi, sdr_buffer
@@ -60,12 +150,12 @@ _start:
     call process_sdr_tdoa
 
     ; ===============================
-    ; 4. COMPUTE POSITION (MULTILATERATION)
+    ;  COMPUTE POSITION (MULTILATERATION)
     ; ===============================
     call calculate_position
 
     ; ===============================
-    ; 5. EXIT
+    ;  EXIT
     ; ===============================
     mov eax, 60  ; Exit syscall
     xor edi, edi
